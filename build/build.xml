@@ -46,9 +46,11 @@ all
 			zip
 				jar
 					scripts
-			dmg
+			osx-app
 				jar
 					scripts
+			osx-dmg
+				osx-app
 -->
 
 <project name="ADTPro" default="all" basedir="..">
@@ -82,7 +84,6 @@ all
 	<property name="slf4jJarPath" value="${builddir}/lib/jssc" />
 	<property name="ip65lib" value="${builddir}/lib/ip65/ip65.lib ${builddir}/lib/ip65/a2combo.lib ${builddir}/lib/cc65/apple2.lib" />
 	<property name="ip65u2lib" value="${builddir}/lib/ip65/ip65.lib ${builddir}/lib/ip65/a2uther2.lib ${builddir}/lib/cc65/apple2.lib" />
-	<property name="dmgmegabytes" value="9" />
 	<!-- classes.com.webcodepro.applecommander.ui.AntTask -->
 	<!-- com.webcodepro.applecommander.ui.AntTask -->
 	<taskdef name="appleCommander" classname="com.webcodepro.applecommander.ui.AntTask" classpath="${projdir}/src;${acJarPath}/${acJar}"/>
@@ -97,7 +98,7 @@ all
 
 	<target name="client" depends="prodos, sos" description="Build Client Resources" />
 
-	<target name="server" depends="prepare,compile,zip, dmg" description="Build Server Resources" >
+	<target name="server" depends="prepare,compile,zip,osx-app,osx-dmg" description="Build Server Resources" >
 	</target>
 
 	<target name="jar" depends="scripts" description="Gather Java Resources for Executable Server" >
@@ -153,38 +154,105 @@ all
 			</tarfileset>
 		</tar>
 	</target>
-	<target name="dmg" depends="jar" if="isOSX" description="Build OSX DMG Installable Package" >
-		<!-- Add an empty directory in the .app for each languge we translate into -->
-		<mkdir dir="${builddir}/${distName}/${distName}.app/Contents/Resources/English.lproj"/>
-		<mkdir dir="${builddir}/${distName}/${distName}.app/Contents/Resources/French.lproj"/>
-		<mkdir dir="${builddir}/${distName}/${distName}.app/Contents/Resources/Korean.lproj"/>
-		<mkdir dir="${builddir}/${distName}/${distName}.app/Contents/Resources/Spanish.lproj"/>
-		<mkdir dir="${builddir}/${distName}/${distName}.app/Contents/Resources/Italian.lproj"/>
-		<mkdir dir="${builddir}/${distName}/${distName}.app/Contents/Resources/pt.lproj"/>
+	<target name="osx-app" depends="jar" if="isOSX" description="Build OSX App Bundle using jpackage">
+		<!-- skip if the app bundle already exists -->
+		<uptodate property="osx.app.uptodate" targetfile="${builddir}/${distName}.app/Contents/Info.plist">
+			<srcfiles dir="${builddir}/${distName}/lib" includes="${distName}.jar,AppleCommander/${acJar},jssc/${jsscJar},jssc/${slf4jJar}"/>
+		</uptodate>
 
-		<!-- Get rid of stuff the Apple crowd doesn't need -->
-		<move file="${builddir}/${distName}/ADTPro.sh" tofile="${builddir}/${distName}/ADTPro.command"/>
-		<delete file="${builddir}/${distName}/ADTPro.bat" />
-		<delete file="${builddir}/${distName}/ac.bat" />
+		<!-- verify jpackage and jlink exist -->
+		<condition property="jdk.tools.present" value="true" else="false">
+			<and>
+				<available file="${java.home}/bin/jpackage" type="file"/>
+				<available file="${java.home}/bin/jlink" type="file"/>
+			</and>
+		</condition>
+		<fail message="Error: jpackage or jlink not found in ${java.home}/bin. Ensure JDK 17 or higher is used." unless="jdk.tools.present"/>
 
-		<!-- Copy the app starter stub -->
-		<mkdir dir="${builddir}/${distName}/${distName}.app/Contents/MacOS"/>
-		<copy file="${builddir}/ADTPro.macapp" tofile="${builddir}/${distName}/${distName}.app/Contents/MacOS/${distName}"/>
-		<replace file="${builddir}/${distName}/${distName}.app/Contents/MacOS/${distName}" token="%ADTPRO_VERSION%" value="${versionString}"/>
-		<chmod file="${builddir}/${distName}/${distName}.app/Contents/MacOS/${distName}" perm="755"/>
+		<!-- ensure all jars are present -->
+		<condition property="jars.present" value="true" else="false">
+			<and>
+				<available file="${builddir}/${distName}/lib/${distName}.jar"/>
+				<available file="${builddir}/${distName}/lib/AppleCommander/${acJar}"/>
+				<available file="${builddir}/${distName}/lib/jssc/${jsscJar}"/>
+				<available file="${builddir}/${distName}/lib/jssc/${slf4jJar}"/>
+			</and>
+		</condition>
+		<fail message="Error: Missing required JAR files" unless="jars.present"/>
 
-		<!-- Push the "ADTPro-v.r.m" directory one level deeper.  I couldn't seem to get Ant to do what I wanted, so I just dumped in the simple shell commands I needed. -->
-		<tempfile property="tempFile"/>
-		<echo message="Pushing package contents one level deeper."/>
-		<exec dir="${builddir}" os="Mac OS X" executable="/bin/sh">
-			<arg value="-c"/>
-			<arg value="mkdir ${tempFile};mv ${distName} ${tempFile};mv ${tempFile} ${distName}"/>
+		<!-- create minimal jre with jlink in temp directory -->
+		<tempfile property="temp.jre.dir" destDir="${java.io.tmpdir}" prefix="adtpro-jre-" deleteOnExit="true"/>
+		<exec executable="${java.home}/bin/jlink" failonerror="true">
+			<arg value="--add-modules"/>
+			<arg value="java.base,java.desktop,java.logging,jdk.crypto.ec,java.prefs,java.sql"/>
+			<arg value="--output"/>
+			<arg value="${temp.jre.dir}"/>
+			<arg value="--no-header-files"/>
+			<arg value="--no-man-pages"/>
+			<arg value="--strip-debug"/>
+			<arg value="--compress=zip-9"/>
 		</exec>
 
-		<!-- Package up a pretty .dmg -->
-		<exec dir="${builddir}" os="Mac OS X" executable="/bin/sh">
-			<arg value="-c"/>
-			<arg value="${builddir}/mkdmg.sh ${builddir} ${distName} ${distName} ${distName} ${dmgmegabytes}"/>
+		<!-- verify jre structure -->
+		<condition property="jre.valid" value="true" else="false">
+			<available file="${temp.jre.dir}/bin/java" type="file"/>
+		</condition>
+		<fail message="Error: Invalid JRE structure in ${temp.jre.dir}. Missing bin/java." unless="jre.valid"/>
+
+		<!-- run jpackage to create .app bundle -->
+		<exec executable="${java.home}/bin/jpackage" failonerror="true">
+			<arg value="--input"/>
+			<arg value="${builddir}/${distName}/lib"/>
+			<arg value="--name"/>
+			<arg value="${distName}"/>
+			<arg value="--main-jar"/>
+			<arg value="${distName}.jar"/>
+			<arg value="--main-class"/>
+			<arg value="org.adtpro.ADTPro"/>
+			<arg value="--type"/>
+			<arg value="app-image"/>
+			<arg value="--mac-package-name"/>
+			<arg value="${distName}"/>
+			<arg value="--mac-package-identifier"/>
+			<arg value="org.adtpro"/>
+			<arg value="--icon"/>
+			<arg value="${builddir}/ADTPro.icns"/>
+			<arg value="--java-options"/>
+			<arg value="--enable-native-access=ALL-UNNAMED"/>
+			<arg value="--runtime-image"/>
+			<arg value="${temp.jre.dir}"/>
+			<arg value="--dest"/>
+			<arg value="${builddir}"/>
+			<arg value="--app-version"/>
+			<arg value="${versionString}"/>
+		</exec>
+
+		<!-- verify the generated .app exists -->
+		<condition property="app.created" value="true" else="false">
+			<available file="${builddir}/${distName}.app" type="dir"/>
+		</condition>
+		<fail message="Error: ${distName}.app was not created" unless="app.created"/>
+
+		<!-- add an empty directory in the .app for each languge we translate into -->
+		<mkdir dir="${builddir}/${distName}.app/Contents/Resources/en.lproj"/>
+		<mkdir dir="${builddir}/${distName}.app/Contents/Resources/fr.lproj"/>
+		<mkdir dir="${builddir}/${distName}.app/Contents/Resources/ko.lproj"/>
+		<mkdir dir="${builddir}/${distName}.app/Contents/Resources/es.lproj"/>
+		<mkdir dir="${builddir}/${distName}.app/Contents/Resources/it.lproj"/>
+		<mkdir dir="${builddir}/${distName}.app/Contents/Resources/pt-BR.lproj"/>
+
+		<!-- copy additional resources -->
+		<copy todir="${builddir}/${distName}/${distName}.app/Contents/Resources">
+			<fileset dir="${builddir}/${distName}" includes="README,LICENSE,ADTPro.html"/>
+		</copy>
+	</target>
+	<target name="osx-dmg" depends="osx-app" if="isOSX" description="Build OSX DMG Installable Package">
+		<exec executable="sh" failonerror="true">
+			<arg value="${builddir}/mkdmg.sh"/>
+			<arg value="${builddir}"/>
+			<arg value="${distName}"/>
+			<arg value="${builddir}/ADTProDMG.icns"/>
+			<arg value="${srcdir}/org/adtpro/resources/ADTProMacInstallBackground.png"/>
 		</exec>
 	</target>
 	<target name="scripts" description="Tailor Server Scripts" >
@@ -591,6 +659,7 @@ all
 		<delete file="${projdir}/src/client/messages.asm" />
 		<delete file="${builddir}/${distName}.tar.gz" />
 		<delete file="${builddir}/${distName}.zip" />
+		<delete dir="${builddir}/${distName}.app" />
 		<delete file="${builddir}/${distName}.dmg" />
 		<delete file="${builddir}/${distName}/disks/${diskName}.DSK" />
 		<delete file="${builddir}/${distName}/disks/${disk3Name}.DSK" />
