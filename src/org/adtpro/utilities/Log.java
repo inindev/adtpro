@@ -20,6 +20,7 @@
 
 package org.adtpro.utilities;
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
@@ -31,20 +32,53 @@ public class Log
 {
   private static Log _theSingleton = null;
 
-  private static String _traceFileName = Messages.getString("TraceFileName");
+  private static String _traceFileName = null;
 
   private static boolean _trace = false;
 
   private static PrintStream _out = null;
 
   /**
-   * 
    * Private constructor - use the <code>getSingleton</code> to instantiate.
-   * 
    */
   private Log()
   {
     _out = System.out;
+    // determine log file path
+    String logDir = getLogDirectory();
+    _traceFileName = logDir + Messages.getString("TraceFileName");
+  }
+
+  /**
+   * Get a writable directory for the log file, falling back to user.home/.adtpro if needed.
+   */
+  private String getLogDirectory()
+  {
+    File baseDirFile = new File(".");
+    String logDir;
+
+    // check if the current directory is writable
+    if (baseDirFile.canWrite())
+    {
+      String absolutePath = baseDirFile.getAbsolutePath();
+      logDir = absolutePath.substring(0, absolutePath.length() - 2); // remove "/."
+    }
+    else
+    {
+      // fallback to user.home/.adtpro
+      logDir = System.getProperty("user.home") + File.separator + ".adtpro";
+      File adtproDir = new File(logDir);
+      if (!adtproDir.exists())
+      {
+        adtproDir.mkdirs(); // create .adtpro directory if it doesn't exist
+      }
+      println(false, "Log.getLogDirectory(): Current directory is read-only, using user.home/.adtpro: " + logDir);
+    }
+    if (!logDir.endsWith(File.separator))
+    {
+      logDir = logDir + File.separator;
+    }
+    return logDir;
   }
 
   public static void printStackTrace(Throwable e)
@@ -138,5 +172,4 @@ public class Log
   {
     return _trace;
   }
-
 }
