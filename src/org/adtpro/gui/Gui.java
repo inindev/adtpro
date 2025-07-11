@@ -58,8 +58,8 @@ import org.adtpro.CommsThread;
 public final class Gui extends JFrame implements ActionListener
 {
 	/**
-   * 
-   */
+	 *
+	 */
 	private static final long serialVersionUID = 1L;
 
 	Gui _parent;
@@ -72,7 +72,7 @@ public final class Gui extends JFrame implements ActionListener
 
 	private JLabel labelMainProgress, labelSubProgress;
 
-	public ADTProperties _properties = new ADTProperties(Messages.getString("PropertiesFileName"));
+	public ADTProperties _properties = null;
 
 	boolean _isSerialAvailable = false;
 
@@ -104,6 +104,9 @@ public final class Gui extends JFrame implements ActionListener
 
 	public Gui(java.lang.String[] args)
 	{
+		String propFile = getWorkingDirectory() + Messages.getString("PropertiesFileName");
+		_properties = new ADTProperties(propFile);
+
 		Log.getSingleton().setTrace(_properties.getProperty("TraceEnabled", "false").compareTo("true") == 0);
 		Log.println(false, "Gui Constructor entry.");
 
@@ -480,12 +483,27 @@ public final class Gui extends JFrame implements ActionListener
 
 	public String getWorkingDirectory()
 	{
-		File baseDirFile;
 		if (_workingDirectory == null)
 		{
-			baseDirFile = new File("."); //$NON-NLS-1$
-			_workingDirectory = baseDirFile.getAbsolutePath();
-			_workingDirectory = _workingDirectory.substring(0, _workingDirectory.length() - 2);
+			File baseDirFile = new File("."); //$NON-NLS-1$
+
+			// check if the directory is writable
+			if (baseDirFile.canWrite())
+			{
+				String absolutePath = baseDirFile.getAbsolutePath();
+				_workingDirectory = absolutePath.substring(0, absolutePath.length() - 2); // remove "/."
+			}
+			else
+			{
+				// fallback to user.home/.adtpro
+				_workingDirectory = System.getProperty("user.home") + File.separator + ".adtpro";
+				File adtproDir = new File(_workingDirectory);
+				if (!adtproDir.exists())
+				{
+					adtproDir.mkdirs(); // create .adtpro directory if it doesn't exist
+				}
+				Log.println(false, "Gui.getWorkingDirectory(): Current directory is read-only, using user.home/.adtpro: " + _workingDirectory);
+			}
 		}
 		if (!_workingDirectory.endsWith(File.separator))
 		{
@@ -946,7 +964,9 @@ public final class Gui extends JFrame implements ActionListener
 			_properties.setProperty("CoordH", "" + r.height);
 			_properties.setProperty("CoordW", "" + r.width);
 		}
+System.out.println("Gui.saveProperties() - about to call _properties.save()");
 		_properties.save();
+System.out.println("Gui.saveProperties() - after call to _properties.save()");
 	}
 
 	public static class WindowCloseMonitor extends WindowAdapter
