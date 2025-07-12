@@ -92,6 +92,17 @@ all
 	<condition property="isMacOS">
 		<os name="Mac OS X"/>
 	</condition>
+	<condition property="isIntelMac">
+		<and>
+			<os name="Mac OS X"/>
+			<not>
+				<matches string="${os.arch}" pattern="aarch64"/>
+			</not>
+		</and>
+	</condition>
+	<condition property="dmgFileName" value="${distName}_legacy_intel.dmg" else="${distName}.dmg">
+		<isset property="isIntelMac"/>
+	</condition>
 
 	<target name="all" depends="wipe, clean, package" description="Scorched-Earth Build From Source" />
 
@@ -261,7 +272,7 @@ all
 			<arg value="${builddir}/macos/mkdmg.sh"/>
 			<arg value="${builddir}/${distName}"/>
 			<arg value="${builddir}/macos/ADTProFolder.icns"/>
-			<arg value="${builddir}/${distName}.dmg"/>
+			<arg value="${builddir}/${dmgFileName}"/>
 			<arg value="${builddir}/macos/ADTProDMG.icns"/>
 			<arg value="${builddir}/macos/ADTProMacInstallBackground.png"/>
 			<arg value="${distName}"/>
@@ -670,7 +681,7 @@ all
 		<delete file="${builddir}/${distName}.tar.gz" />
 		<delete file="${builddir}/${distName}.zip" />
 		<delete dir="${builddir}/${distName}/${distName}.app" />
-		<delete file="${builddir}/${distName}.dmg" />
+		<delete file="${builddir}/${dmgFileName}" />
 		<delete file="${builddir}/${distName}/disks/${diskName}.DSK" />
 		<delete file="${builddir}/${distName}/disks/${disk3Name}.DSK" />
 		<delete file="${builddir}/${distName}/disks/${vdriveDiskName}.DSK" />
